@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>DistanceGraph</title>
+    <meta charset="utf-8">
+    <link href=css/bootstrap.min.css rel=stylesheet media="screen">
+
+</head>
+
+<!-- We define the css style information for the path. You can also have this information in a .css file -->
+<!-- colors can be given as classes red - blue, but also as consecutive hexadecimal (0-f) numbers in the form of RGB (either 3 or 6 digits) so
+For example: #00ff00 (green) , #f00 (red), #ff0 (yellow) #fff (white) #ccf (blue less saturated) etc -->
+<!-- cursor allows you to define the form of the cursor when you are on top of the object -->
+
+<style>
+    svg {
+        font: 10px sans-serif;
+    }
+    .background path {
+        fill: none;
+        stroke: #fff;
+        stroke-opacity: .4;
+        shape-rendering: crispEdges;
+    }
+
+    .foreground path {
+        fill: none;
+        stroke: steelblue;
+        stroke-width:1;
+        stroke-opacity: .7;
+    }
+
+    .brush .extent {
+        fill-opacity: .4;
+        shape-rendering: crispEdges;
+    }
+
+    .axis line,
+    .axis path {
+        fill: none;
+        stroke: #393b79;
+        shape-rendering: crispEdges;
+    }
+
+    .axis text {
+        text-shadow: 0 2px 0 #fff;
+        cursor: move;
+    }
+
+    .outer {
+        fill:none;
+        stroke: #000;
+    }
+
+    .legend-box {
+        display: inline-block;
+        min-width: 1em;
+        min-height: 1em;
+    }
+
+</style>
+
+<script src="js/d3.min.js"></script>
+<script src="js/jquery-1.11.1.min.js"></script>
+
+<body>
+<a class="btn btn-default" href="index.html"> Back </a>
+<div class="container"> 
+    <h1>Distance Graph <small>Single Game</small></h1>
+    <div class="row">
+        <div id="svgHere" class="col-lg-10"></div>
+        <div class="col-lg-2">
+            <h3><small>Tier Filter</small></h3>
+            <label><input disabled type="checkbox" name="tiersFilter[]" value="Normal"> Normal</label></br>
+            <label><input disabled type="checkbox" name="tiersFilter[]" value="High"> High</label></br>
+            <label><input disabled type="checkbox" name="tiersFilter[]" value="VeryHigh"> Very High</label></br>
+            <label><input disabled type="checkbox" checked name="tiersFilter[]" value="Pro"> Pro</label></br>
+
+            <h3><small>Win/Lose Filter</small></h3>
+            <label><input type="radio" name="winRadio" value="Win"> Win</label></br>
+            <label><input type="radio" name="winRadio" value="Lose"> Lose</label></br>
+            <label><input type="radio" checked name="winRadio" value="WinLose"> Both</label></br>
+            
+            <h3><small>Legend</small></h3>
+            <div>
+                <div><span id="legend-radiant" class="legend-box"></span> Radiant (won)</div>
+                <div><span id="legend-dire" class="legend-box"></span> Dire (lost)</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+
+$(function(){
+
+    var selectedWinLose = 'WinLose';
+    var checkedFilters = ['Normal', 'High', 'VeryHigh', 'Pro'];
+
+    var margin = {top: 20, right: 20, bottom: 20, left: 50},
+            width = 960 - margin.left - margin.right,
+            height = 500 - margin.top - margin.bottom;
+
+    // Defines your svg element and also as a "g" (graphic) element that you can translate for your visualization
+
+    var svg = d3.select("#svgHere").append("svg")// where are you placing your graphic (body) (div)
+            .attr("width", width + margin.left + margin.right)
+            .attr("height", height + margin.top + margin.bottom)
+            .append("g")
+            .attr("transform", "translate(" + margin.left + "," + margin.top + ")"); //
+
+
+    // We draw the outer rectangle based on the outer class
+    svg.append("rect")
+            .attr("class", "outer")
+            .attr("width", width)
+            .attr("height", height)
+
+    var color = d3.scale.category10();
+    //------------------------------------------------------------//
+    var dataRaw;
+
+	// We read the data
+	d3.csv("sample-data/distance_single.csv",function(error, data) {
+        
+        data.forEach(function(d) {
+    		d.match  = +d.match;
+            d.team	= d.team;
+    		d.tsync	= +d.tsync;
+    		d.DD	= +d.DD;
+    		d.Tier = d.Tier;
+            d.WinLose = d.WinLose;
+        });
+        dataRaw = data;
+        graphDraw(data);
+
+    });
+
+    var graphDraw = function(data){
+
+        console.log(data);
+
+        var teamData = new Object();
+        var index = 0;
+        data.forEach(function(d){
+            
+            teamData[d.team] = teamData[d.team] || [];
+            teamData[d.team].push(d);
+        });
+
+        vis = svg,
+        xRange = d3.scale.linear().range([margin.left, width - margin.right]).domain([d3.min(data, function(d) {
+          return d.tsync;
+        }), d3.max(data, function(d) {
+          return d.tsync;
+        })]),
+        yRange = d3.scale.linear().range([height - margin.top, margin.bottom]).domain([d3.min(data, function(d) {
+          return d.DD;
+        }), d3.max(data, function(d) {
+          return d.DD;
+        })]),
+        xAxis = d3.svg.axis()
+          .scale(xRange)
+          .tickSize(5)
+          .tickSubdivide(true),
+        yAxis = d3.svg.axis()
+          .scale(yRange)
+          .tickSize(5)
+          .orient('left')
+          .tickSubdivide(true);
+         
+        vis.append('g')
+          .attr('class', 'x axis')
+          .attr('transform', 'translate(0,' + (height - margin.bottom) + ')')
+          .call(xAxis);
+         
+        vis.append('g')
+          .attr('class', 'y axis')
+          .attr('transform', 'translate(' + (margin.left) + ',0)')
+          .call(yAxis);
+
+        var lineFunc = d3.svg.line()
+            .x(function(d) {
+                return xRange(d.tsync);
+            })
+            .y(function(d) {
+                return yRange(d.DD);
+            })
+            .interpolate('linear');
+
+        for(key in teamData){
+
+            vis.append('path')
+                .attr('class', 'linechart')
+                .attr('d', lineFunc(teamData[key]))
+                .attr('stroke',color(key))
+                .attr('stroke-width', 1.4)
+                .attr("data-legend", key)
+                .attr('fill', 'none');
+
+
+            $('#legend-'+key).css('background-color', color(key));
+        };
+
+    };
+
+    var graphReDraw = function(){
+        //matching rules from:
+        //var selectedWinLose = 'WinLose' || 'Win' || 'WinLose'
+        //var checkedFilters = ['Normal', 'High', 'VeryHigh', 'Pro']
+
+        //d.Tier = d.Tier;
+        //d.WinLose = d.WinLose;
+        //
+        $('.linechart').remove();
+        $('.axis').remove();
+        //$('.legend').remove();
+
+        graphDraw(dataRaw.filter(function(item){
+            var inTierCond = checkedFilters.indexOf(item.Tier) > -1;
+            var inWinLoseCond;
+
+            if(selectedWinLose == 'WinLose'){
+                inWinLoseCond = true;
+            } else {
+                inWinLoseCond = (selectedWinLose == item.WinLose);
+            }
+            return inTierCond && inWinLoseCond;
+        }));
+    }
+
+    //jquery bind buttons
+
+    $("input[name='winRadio'").click(function(){
+        var clicked = ($(this).val());
+        selectedWinLose = clicked;
+        graphReDraw();
+    });
+
+    $("input[name='tiersFilter[]'").click(function(){
+        var clicked = ($(this).val());
+        var index = checkedFilters.indexOf(clicked);
+        if(index>-1){
+            checkedFilters.splice(index,1);
+        } else {
+            checkedFilters.push(clicked);
+        }
+        graphReDraw();
+    });
+
+
+});
+
+</script>
+
+
+
+</body>
+</html>

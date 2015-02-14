@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>DistanceGraph</title>
+    <meta charset="utf-8">
+    <link href=css/bootstrap.min.css rel=stylesheet media="screen">
+
+</head>
+
+<style>
+    svg {
+        font: 10px sans-serif;
+    }
+    .background path {
+        fill: none;
+        stroke: #fff;
+        stroke-opacity: .4;
+        shape-rendering: crispEdges;
+    }
+
+    .foreground path {
+        fill: none;
+        stroke: steelblue;
+        stroke-width:1;
+        stroke-opacity: .7;
+    }
+
+    .brush .extent {
+        fill-opacity: .4;
+        shape-rendering: crispEdges;
+    }
+
+    .axis line,
+    .axis path {
+        fill: none;
+        stroke: #393b79;
+        shape-rendering: crispEdges;
+    }
+
+    .axis text {
+        text-shadow: 0 2px 0 #fff;
+        cursor: move;
+    }
+
+    .outer {
+        fill: rgba(255,255,255,0.33);
+        stroke: #000;
+    }
+
+    .legend-box {
+        display: inline-block;
+        min-width: 1em;
+        min-height: 1em;
+        background-color: red;
+    }
+
+    .legend-circle {
+        display: inline-block;
+        min-height: 1em;
+        min-height: 1em;
+        background-color: red;
+    }
+
+</style>
+
+<script src="js/d3.min.js"></script>
+<script src="js/jquery-1.11.1.min.js"></script>
+
+<body>
+<a class="btn btn-default" href="index.html"> Back </a>
+<div class="container"> 
+    <h1>Gameplay loop <small>(10x)</small></h1>
+    <h5>Game progress: <span id="gtime"></span></h5>
+     <div id="svgHere" class="col-lg-6"></div>
+        <div class="col-lg-6">
+            <h3><small>Legend</small></h3>
+            <hr>
+            <h5><small>Players</small></h5>
+            <div id="players-legend">
+            </div>
+            <hr>
+            <h5><small>Teams</small></h5>
+            <div>
+                <div><span id="legend-radiant" class="legend-box"></span> Radiant (Won)</div>
+                <div><span id="legend-dire" class="legend-box"></span> Dire (Lost)</div>
+            </div>
+            <div>
+            <h3><small>Options</small></h3>
+            <label><input type="checkbox" id="teamcolor" checked> Toggle player lines</label>
+        </div>
+    </div>
+</div>
+
+<script>
+
+$(function(){
+    var drawLinesCondition = true;
+
+    $('#teamcolor').change(function(){
+        if(!$(this).is(":checked")){
+            drawLinesCondition = false;
+            $('.trajectory').remove();
+        } else {
+            drawLinesCondition = true;
+        }
+    });
+
+    var margin = {top: 20, right: 20, bottom: 20, left: 20},
+            width = 552 - margin.left - margin.right,
+            height = 552 - margin.top - margin.bottom;
+
+
+    // Defines your svg element and also as a "g" (graphic) element that you can translate for your visualization
+
+    var svg = d3.select("#svgHere").append("svg")// where are you placing your graphic (body) (div)
+            .attr("width", width + margin.left + margin.right)
+            .attr("height", height + margin.top + margin.bottom)
+            .append("g")
+            .attr("transform", "translate(" + margin.left + "," + margin.top + ")"); //
+
+    var field = svg.selectAll("image").data([0]);
+        
+    field.enter()
+        .append("svg:image")
+        .attr("width", 512)
+        .attr("height", 512)
+        .attr("xlink:href", "img/map.jpg");
+
+    // We draw the outer rectangle based on the outer class
+    var overlay = svg.append("rect")
+        .attr("class", "outer")
+        .attr("width", width)
+        .attr("height", height);
+
+    var trajectories = svg.append("g");
+
+    var playersGroup = svg.append("g");
+
+    //------------------------------------------------------------//
+
+	// We read the data
+	d3.csv("sample-data/zones_single.csv",function(error, data) {
+        
+        data.forEach(function(d) {
+            d.t = +d.t;
+            d.x = +d.x;
+            d.y = +d.y;
+    		d.match  = +d.match;
+            d.team	= d.team;
+            d.player = d.player;
+            d.won = (+d.won==1);
+            d.tstd = +d.tstd;
+    		d.tsync	= +d.tsync;
+            d.tper = +d.tper;
+    		d.tier = d.tier;
+            d.zone = d.zone;
+        });
+
+        var timestampData = new Object();
+
+        data.forEach(function(d){
+            timestampData[d.tsync] = timestampData[d.tsync] || [];
+            timestampData[d.tsync].push(d);
+        });
+
+        //console.log(timestampData);
+
+        var vis = svg,
+            xRange = d3.scale.linear().range([margin.left, width - margin.right]).domain([d3.min(data, function(d) {
+              return d.x;
+            }), d3.max(data, function(d) {
+              return d.x;
+            })]),
+            yRange = d3.scale.linear().range([height - margin.top, margin.bottom]).domain([d3.min(data, function(d) {
+              return d.y;
+            }), d3.max(data, function(d) {
+              return d.y;
+            })]),
+            color = d3.scale.category10(),
+            color20 = d3.scale.category20();
+
+        //colors for legend (hardcoded for simplicity)
+        $('#legend-radiant').css('background-color', color('radiant'));
+        $('#legend-dire').css('background-color', color('dire'));
+        
+        //set up legend for players
+        var setLegends = (function() {
+
+            var playersInGame = timestampData[0];
+            console.log(playersInGame);
+
+            playersInGame.forEach(function(player){
+                $('#players-legend').append(
+                    '<div><span class="legend-'+player.team+'"> </span> '+
+                    '<span class="legend-box" style="background-color: '+color(player.player)+'"></span> '+
+                    unescape(player.player)+' ('+player.team+')</div>');
+            });
+
+        })();
+
+        var clearPlayers = function() {
+            svg.selectAll('.player').remove();
+        };
+
+        var render = function(dataframe) {
+
+            if(!dataframe)
+                return;
+
+            clearPlayers();
+
+            var player = playersGroup.selectAll(".player")
+                .data(dataframe)
+                .enter()
+                .append("g")
+                .attr("class", "player")
+                .call(translate)
+            
+            player.append("circle")
+                .style("fill", function(d) { return color(d.player); })
+                .style("stroke-width", 4)
+                .style("stroke", function(d) { return color(d.team); })
+                .attr("r", 10);
+
+            function translate(player) {
+                
+                player.attr("transform", function (d) {
+                    return "translate("+xRange(d.x)+","+yRange(d.y)+")";
+                });
+            }
+
+            drawLines(dataframe);
+
+
+        }
+
+        var previousTimePoint;
+        var i=0;
+        var drawLines = function(timePoint){
+
+            if(!previousTimePoint){
+                previousTimePoint = timePoint;
+                return;
+            }
+
+            //now we have previous and next timepoint - draw a connecting line
+            for(var i=0; i<timePoint.length;i++){
+
+                if((Math.abs(previousTimePoint[i].x - timePoint[i].x) > 7) ||
+                    Math.abs(previousTimePoint[i].y - timePoint[i].y) > 7)
+                    continue;
+                //this will become really inefficient, but hey! that is not a point of this assignment :)
+                trajectories.append("line")
+                    .attr("class", "trajectory")
+                    .attr("x1", xRange(previousTimePoint[i].x))
+                    .attr("y1", yRange(previousTimePoint[i].y))
+                    .attr("x2", xRange(timePoint[i].x))
+                    .attr("y2", yRange(timePoint[i].y))
+                    .attr("stroke-width", "2")
+                    .call(teamOrindividualLineCheck);
+
+                function teamOrindividualLineCheck(line){
+                    if(drawLinesCondition){
+                        line.attr("stroke", color(timePoint[i].team));
+                    }
+                }
+
+            }
+            previousTimePoint = timePoint;
+        }
+
+
+        var deleteLines = function(){
+            $('.trajectory').remove();
+        }
+
+        var currentFrame = -1;
+        var totalFrames = Object.keys(timestampData).length;
+
+        var animationLoop = function() {
+
+            setTimeout(function() {
+
+                currentFrame = ++currentFrame % totalFrames;
+
+                if(currentFrame == 0)
+                    deleteLines();
+
+                $('#gtime').html(parseInt((currentFrame/totalFrames)*100)+'%');
+
+                requestAnimationFrame(animationLoop);
+                render(timestampData[currentFrame]);
+
+            }, 1000 / 10);
+
+        }
+
+        animationLoop();
+
+    });
+
+});
+
+</script>
+
+
+</body>
+</html>
